@@ -9,7 +9,8 @@ QTY = 1
 def run_bot_once():
     api = get_client()
 
-    bars = api.get_bars(SYMBOL, "1Min", limit=50)
+    # Use daily bars instead of 1-minute bars so data is always available
+    bars = api.get_bars(SYMBOL, "1Day", limit=50)
     signal = get_signal(bars)
 
     if signal == "buy":
