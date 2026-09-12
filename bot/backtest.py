@@ -116,13 +116,12 @@ def run_backtest(closes: Sequence[float], symbol: str = "BTC/USD",
 
 
 def _fetch_closes(symbol: str, timeframe: str, limit: int) -> List[float]:
-    from .alpaca_client import get_client, get_crypto_bars
+    from .brokers import get_broker
     from .config import load_config
 
     config = load_config()
-    api = get_client(config)
-    bars = get_crypto_bars(api, symbol, timeframe, limit)
-    return extract_closes(bars)
+    broker = get_broker(config)
+    return extract_closes(broker.get_bars(symbol, timeframe, limit))
 
 
 def main(argv=None) -> int:

@@ -10,54 +10,55 @@ import pytest
 
 import bot.logger as logger_mod
 import bot.state as state_mod
-from bot.broker import submit_market_order
+from bot.brokers.base import Account, Bar, DataError, Order, Position
+from bot.execution import submit_market_order
 from bot.config import Config
 from bot.run_once_and_exit import process_symbol
 from bot.risk import AccountState
 
 
-class FakeOrder:
-    def __init__(self, symbol, qty, side):
-        self.id = "order-1"
-        self.symbol = symbol
-        self.qty = qty
-        self.side = side
-        self.status = "accepted"
+def FakePosition(symbol, qty, market_value, avg_entry_price, current_price,
+                 side="long"):
+    return Position(symbol=symbol, qty=qty, side=side,
+                    market_value=market_value,
+                    avg_entry_price=avg_entry_price,
+                    current_price=current_price)
 
 
-class FakePosition:
-    def __init__(self, symbol, qty, market_value, avg_entry_price,
-                 current_price, side="long"):
-        self.symbol = symbol
-        self.qty = qty
-        self.market_value = market_value
-        self.avg_entry_price = avg_entry_price
-        self.current_price = current_price
-        self.side = side
+def FakeBar(close, symbol="BTC/USD"):
+    return Bar(symbol=symbol, timestamp=None, open=close, high=close,
+               low=close, close=close, volume=1.0)
 
 
-class FakeBar:
-    def __init__(self, close, symbol="BTC/USD"):
-        self.close = close
-        self.symbol = symbol
+class FakeBroker:
+    """In-memory Broker implementation for cycle tests."""
 
+    name = "fake"
 
-class FakeAPI:
-    def __init__(self, closes, positions=None):
+    def __init__(self, closes, positions=None, equity=10000.0):
         self._closes = closes
         self.positions = positions or []
         self.orders = []
+        self.equity = equity
 
-    def get_crypto_bars(self, symbol, timeframe, start=None, end=None,
-                        limit=None, **kwargs):
+    def get_bars(self, symbol, timeframe, limit):
         return [FakeBar(c, symbol) for c in self._closes]
 
-    def list_positions(self):
+    def get_account(self):
+        return Account(equity=self.equity, last_equity=self.equity,
+                       cash=self.equity, buying_power=self.equity)
+
+    def get_positions(self):
         return self.positions
 
-    def submit_order(self, **kwargs):
-        self.orders.append(kwargs)
-        return FakeOrder(kwargs["symbol"], kwargs["qty"], kwargs["side"])
+    def submit_market_order(self, symbol, qty, side, time_in_force="gtc"):
+        self.orders.append({"symbol": symbol, "qty": qty, "side": side,
+                            "time_in_force": time_in_force})
+        return Order(id="order-1", symbol=symbol, qty=float(qty), side=side,
+                     status="accepted")
+
+
+FakeAPI = FakeBroker  # tests below use the broker interface
 
 
 @pytest.fixture(autouse=True)
@@ -171,13 +172,13 @@ def test_dry_run_submits_nothing():
     assert api.orders == []
 
 
-def test_qty_is_never_scientific_notation():
-    """Floats like 1e-05 serialize badly and get rejected by the API."""
+def test_tiny_qty_is_logged_without_scientific_notation(isolate_logs):
+    """Floats like 1e-05 serialize badly; the trade log must stay readable."""
     api = FakeAPI(UPTREND)
     submit_market_order(api, "BTC/USD", 0.0000123, "buy", price=50000.0)
-    qty = api.orders[0]["qty"]
-    assert isinstance(qty, str)
-    assert "e" not in qty.lower()
+    content = (isolate_logs / "trade_log.csv").read_text()
+    assert "0.0000123" in content
+    assert "e-" not in content
 
 
 def test_zero_qty_order_is_refused():
@@ -202,52 +203,11 @@ def test_trades_are_logged_with_header(isolate_logs):
     assert "buy" in content
 
 
-def test_data_error_does_not_crash_the_run(monkeypatch):
-    # Avoid real backoff sleeps in tests.
-    monkeypatch.setattr("bot.alpaca_client.time.sleep", lambda *_: None)
-
+def test_data_error_does_not_crash_the_run():
     class BrokenAPI(FakeAPI):
-        def get_crypto_bars(self, *a, **k):
-            raise RuntimeError("boom")
+        def get_bars(self, *a, **k):
+            raise DataError("boom")
 
     api = BrokenAPI(UPTREND)
     process_symbol(api, make_config(), make_state(), "BTC/USD", halted=False)
     assert api.orders == []
-
-
-def test_permanent_client_error_is_not_retried(monkeypatch):
-    """A 401/400 must fail immediately rather than burning three attempts."""
-    from bot.alpaca_client import DataError, with_retries
-
-    calls = {"n": 0}
-
-    class Resp:
-        status_code = 401
-
-    class Unauthorized(Exception):
-        response = Resp()
-
-    def boom():
-        calls["n"] += 1
-        raise Unauthorized("unauthorized")
-
-    monkeypatch.setattr("bot.alpaca_client.time.sleep", lambda *_: None)
-    with pytest.raises(DataError):
-        with_retries(boom, description="test")
-    assert calls["n"] == 1
-
-
-def test_transient_error_is_retried(monkeypatch):
-    from bot.alpaca_client import DataError, with_retries
-
-    calls = {"n": 0}
-
-    def flaky():
-        calls["n"] += 1
-        if calls["n"] < 3:
-            raise RuntimeError("temporary network glitch")
-        return "ok"
-
-    monkeypatch.setattr("bot.alpaca_client.time.sleep", lambda *_: None)
-    assert with_retries(flaky, description="test") == "ok"
-    assert calls["n"] == 3

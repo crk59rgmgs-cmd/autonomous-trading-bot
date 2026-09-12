@@ -33,15 +33,18 @@ bot/
   __init__.py
   config.py              Environment-driven configuration + validation
   symbols.py             BTC/USD <-> BTCUSD normalization
-  alpaca_client.py       REST client, retries, crypto bar fetching
+  brokers/
+    base.py              Broker interface + vendor-neutral data models
+    alpaca.py            Alpaca adapter (the ONLY file importing the SDK)
+    __init__.py          Registry: pick a venue via the BROKER env var
   strategy.py            MA crossover + neutral band + RSI filter
   risk.py                Exposure, sizing, stops, drawdown kill switch
-  broker.py              Order submission, dry-run support
+  execution.py           Order submission, dry-run support
   state.py               Persistent peak equity / halt state
   logger.py              Logging + CSV trade/equity/signal records
   backtest.py            Offline strategy evaluation
   run_once_and_exit.py   Entry point
-tests/                   96 unit and integration tests
+tests/                   108 unit and integration tests
 logs/                    Committed run history
 ```
 
@@ -65,6 +68,7 @@ the workflow without touching code.
 
 | Variable | Default | Description |
 | --- | --- | --- |
+| `BROKER` | `alpaca` | Trading venue (see [Adding a broker](#adding-a-broker)) |
 | `SYMBOLS` | `BTC/USD,ETH/USD` | Comma-separated symbols |
 | `TIMEFRAME` | `4Hour` | Bar size (`15Min`, `1Hour`, `4Hour`, `1Day`, ...) |
 | `BAR_LIMIT` | `200` | Bars to fetch per symbol |
@@ -101,6 +105,25 @@ the workflow without touching code.
 - **Dry-run mode** for safe end-to-end verification.
 - **Non-zero exit codes** on failure, so a broken bot does not show green.
 
+## Adding a broker
+
+The strategy, risk, execution, and logging layers depend only on the interface
+in `bot/brokers/base.py` -- never on a vendor SDK. A test enforces this, so
+coupling cannot creep back in.
+
+To add a venue:
+
+1. Create `bot/brokers/<name>.py` with a class implementing `Broker`:
+   `get_bars`, `get_account`, `get_positions`, `submit_market_order`.
+2. Register it in `bot/brokers/__init__.py`.
+3. Set `BROKER=<name>`.
+
+Keep every venue quirk inside the adapter. Alpaca's, for reference: crypto
+needs the slash symbol form, `start` is mandatory, and `limit` must not be
+sent because the API paginates forward and would return the oldest bars.
+Expect any new venue to have its own equivalents -- validate against live
+prices before trusting it.
+
 ## Local use
 
 ```bash
@@ -114,6 +137,15 @@ DRY_RUN=true python -m bot.run_once_and_exit   # simulate a full cycle
 
 python -m bot.backtest --symbol BTC/USD --timeframe 4Hour --limit 1000
 ```
+
+## Why Alpaca
+
+Alpaca provides a real paper-trading account that mirrors the live API, which
+most crypto venues do not. For an unattended bot that matters more than API
+ergonomics. Its notable downside is fees, which are higher than several
+exchanges -- relevant given the strategy has no demonstrated edge.
+
+The broker abstraction exists so this choice stays cheap to revisit.
 
 ## Strategy performance
 

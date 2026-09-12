@@ -43,16 +43,17 @@ class AccountState:
         return self.gross_exposure / self.equity
 
 
-def read_account(api) -> AccountState:
-    account = api.get_account()
-    positions = list(api.list_positions())
+def read_account(broker) -> AccountState:
+    """Snapshot the account through the broker interface."""
+    account = broker.get_account()
+    positions = list(broker.get_positions())
     return AccountState(
         equity=float(account.equity),
         last_equity=float(account.last_equity or account.equity),
-        cash=float(getattr(account, "cash", 0) or 0),
-        buying_power=float(getattr(account, "buying_power", 0) or 0),
+        cash=float(account.cash),
+        buying_power=float(account.buying_power),
         positions=positions,
-        trading_blocked=bool(getattr(account, "trading_blocked", False)),
+        trading_blocked=bool(account.trading_blocked),
     )
 
 

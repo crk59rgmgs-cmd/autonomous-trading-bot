@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.1.0 - Broker abstraction and SDK migration
+
+### Migrated to `alpaca-py`
+
+Replaced the deprecated `alpaca-trade-api`, which forced a `pandas<3` pin.
+`alpaca-py` runs on pandas 3.x, so the pin is gone and the dependency list
+shrank to a single package.
+
+**Verified first:** `alpaca-py` reproduces the 33-day staleness trap
+identically. That confirmed the issue is an API pagination trait, not an SDK
+bug, and that our fix (never send `limit`, slice the newest bars) is the
+correct and portable one.
+
+### Broker abstraction
+
+Trading venue is now a config change (`BROKER`), not a rewrite.
+
+- Added `bot/brokers/base.py`: a `Broker` interface plus vendor-neutral `Bar`,
+  `Account`, `Position`, and `Order` models.
+- Added `bot/brokers/alpaca.py`, the only module importing a vendor SDK.
+- Added `bot/brokers/__init__.py`, a registry resolving `BROKER`.
+- Renamed `bot/broker.py` to `bot/execution.py` and decoupled it from the SDK.
+- `risk.py`, `strategy.py`, `execution.py`, and `backtest.py` no longer
+  reference any vendor SDK; two tests enforce this so coupling cannot return.
+
+### Testing
+
+- 108 tests (was 99), including interface-conformance and SDK-leak guards.
+- CI now asserts **live** crypto data is fresh and correctly counted, which
+  would have caught the staleness bug automatically.
+
+
 ## 2.0.0 — Repository audit and overhaul
 
 A full audit found the bot was **non-functional**: it could not fetch market

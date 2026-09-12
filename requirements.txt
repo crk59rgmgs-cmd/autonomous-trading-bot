@@ -1,14 +1,5 @@
 # Pinned for reproducible CI runs.
 #
-# alpaca-trade-api 3.2.0 is the last release of the legacy SDK. It is pinned
-# rather than floating because an unpinned upstream release can break the bot
-# with zero changes on our side.
-alpaca-trade-api==3.2.0
-
-# The SDK is NOT compatible with pandas 3.x (its Timestamp handling emits
-# warnings and changes behaviour). Pin below 3.0 explicitly, because pip will
-# otherwise resolve pandas 3.x and appear to install cleanly.
-pandas>=2.0,<3.0
-numpy>=1.24,<3.0
-
-requests>=2.31
+# alpaca-py is the actively maintained SDK. It replaced alpaca-trade-api,
+# which was deprecated and forced a pandas<3 pin.
+alpaca-py>=0.42,<1.0

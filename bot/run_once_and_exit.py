@@ -13,8 +13,8 @@ import sys
 import traceback
 
 from . import __version__
-from .alpaca_client import DataError, get_crypto_bars, get_client
-from .broker import close_position, submit_market_order
+from .brokers import DataError, get_broker
+from .execution import close_position, submit_market_order
 from .config import Config, ConfigError, load_config
 from .logger import get_logger, log_equity, log_signal, setup_logging
 from .risk import (
@@ -37,11 +37,11 @@ EXIT_CONFIG_ERROR = 2
 EXIT_RUNTIME_ERROR = 1
 
 
-def process_symbol(api, config: Config, state: AccountState, symbol: str,
+def process_symbol(broker, config: Config, state: AccountState, symbol: str,
                    halted: bool) -> None:
     """Evaluate and act on a single symbol."""
     try:
-        bars = get_crypto_bars(api, symbol, config.timeframe, config.bar_limit)
+        bars = broker.get_bars(symbol, config.timeframe, config.bar_limit)
     except DataError as exc:
         log.error("Skipping %s: %s", symbol, exc)
         log_signal(symbol, "error", reason=str(exc))
@@ -72,7 +72,7 @@ def process_symbol(api, config: Config, state: AccountState, symbol: str,
         )
         if should_exit:
             log.warning("Protective exit on %s: %s", symbol, exit_reason)
-            close_position(api, position, price=signal.price,
+            close_position(broker, position, price=signal.price,
                            time_in_force=config.time_in_force,
                            dry_run=config.dry_run, reason=exit_reason)
             return
@@ -84,7 +84,7 @@ def process_symbol(api, config: Config, state: AccountState, symbol: str,
             log.info("Sell signal for %s but no open position; nothing to do.",
                      symbol)
             return
-        close_position(api, position, price=signal.price,
+        close_position(broker, position, price=signal.price,
                        time_in_force=config.time_in_force,
                        dry_run=config.dry_run,
                        reason=f"strategy sell: {signal.reason}")
@@ -123,7 +123,7 @@ def process_symbol(api, config: Config, state: AccountState, symbol: str,
         log.info("Entering %s: qty=%s notional=%.2f (%s)",
                  symbol, qty, notional, risk_reason)
         submit_market_order(
-            api, symbol, qty, "buy",
+            broker, symbol, qty, "buy",
             price=signal.price,
             time_in_force=config.time_in_force,
             dry_run=config.dry_run,
@@ -146,18 +146,18 @@ def run_bot_once() -> int:
         return EXIT_CONFIG_ERROR
 
     log.info(
-        "Mode: %s | symbols=%s | timeframe=%s | dry_run=%s",
-        "PAPER" if config.paper else "LIVE",
+        "Broker: %s | Mode: %s | symbols=%s | timeframe=%s | dry_run=%s",
+        config.broker, "PAPER" if config.paper else "LIVE",
         ",".join(config.symbols), config.timeframe, config.dry_run,
     )
 
     persisted = load_state()
 
     try:
-        api = get_client(config)
-        account = read_account(api)
+        broker = get_broker(config)
+        account = read_account(broker)
     except Exception as exc:  # noqa: BLE001
-        log.error("Could not reach Alpaca: %s", exc)
+        log.error("Could not reach broker: %s", exc)
         log.debug(traceback.format_exc())
         return EXIT_RUNTIME_ERROR
 
@@ -184,7 +184,7 @@ def run_bot_once() -> int:
     exit_code = EXIT_OK
     for symbol in config.symbols:
         try:
-            process_symbol(api, config, account, symbol, halted)
+            process_symbol(broker, config, account, symbol, halted)
         except Exception as exc:  # noqa: BLE001
             # One bad symbol must not abort the others, but it should still
             # be reflected in the job's exit status.
@@ -193,7 +193,7 @@ def run_bot_once() -> int:
             exit_code = EXIT_RUNTIME_ERROR
 
     try:
-        refreshed = read_account(api)
+        refreshed = read_account(broker)
         log_equity(
             refreshed.equity,
             refreshed.last_equity,

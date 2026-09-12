@@ -53,6 +53,7 @@ class Config:
     secret_key: str
     base_url: str
     paper: bool
+    broker: str = "alpaca"
 
     symbols: List[str] = field(default_factory=lambda: ["BTC/USD", "ETH/USD"])
     timeframe: str = "4Hour"
@@ -109,6 +110,13 @@ class Config:
         if not self.symbols:
             raise ConfigError("At least one symbol must be configured.")
 
+        from .brokers import SUPPORTED_BROKERS
+        if self.broker not in SUPPORTED_BROKERS:
+            raise ConfigError(
+                f"Unknown BROKER {self.broker!r}. "
+                f"Supported: {', '.join(SUPPORTED_BROKERS)}"
+            )
+
         # Safety interlock: refuse to touch the live endpoint unless the
         # operator has explicitly opted out of paper trading.
         if not self.paper and self.base_url == LIVE_ENDPOINT:
@@ -138,6 +146,7 @@ def load_config() -> Config:
         secret_key=os.getenv("ALPACA_SECRET_KEY", "").strip(),
         base_url=base_url,
         paper=paper,
+        broker=os.getenv("BROKER", "alpaca").strip().lower(),
         symbols=symbols,
         timeframe=os.getenv("TIMEFRAME", "4Hour"),
         bar_limit=_env_int("BAR_LIMIT", 200),

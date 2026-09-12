@@ -54,6 +54,7 @@ jobs:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
           ALPACA_PAPER: "true"
+          BROKER: "alpaca"
           SYMBOLS: ${{ github.event.inputs.symbols || 'BTC/USD,ETH/USD' }}
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
           TIMEFRAME: "4Hour"
