@@ -1,0 +1,77 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "logs/**"
+      - "**.md"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Compile-check every source file
+        run: python -m compileall -q bot tests
+
+      - name: Run tests
+        run: python -m pytest tests/ -v
+
+      - name: Verify live crypto data is fresh
+        # Catches API-contract drift (e.g. the pagination change that once
+        # returned 33-day-old prices). Crypto bars need no credentials.
+        run: |
+          python - <<'EOF'
+          import datetime as dt
+          from alpaca.data.historical import CryptoHistoricalDataClient
+          from bot.brokers.alpaca import AlpacaBroker
+
+          b = AlpacaBroker.__new__(AlpacaBroker)
+          b._data = CryptoHistoricalDataClient()
+          b._trading, b.paper = None, True
+
+          bars = b.get_bars("BTC/USD", "4Hour", 200)
+          age = (dt.datetime.now(dt.timezone.utc)
+                 - bars[-1].timestamp).total_seconds() / 3600
+          print(f"{len(bars)} bars, newest {bars[-1].timestamp} ({age:.1f}h old)")
+          assert len(bars) == 200, f"expected 200 bars, got {len(bars)}"
+          assert age < 12, f"market data is {age:.1f}h stale"
+          print("Live data contract OK")
+          EOF
+
+      - name: Smoke-test config validation (no credentials present)
+        # Must exit 2 with a clear message rather than crashing.
+        run: |
+          set +e
+          python -m bot.run_once_and_exit
+          code=$?
+          set -e
+          if [ "$code" -ne 2 ]; then
+            echo "Expected exit code 2 for missing credentials, got $code"
+            exit 1
+          fi
+          echo "Credential validation behaves correctly."

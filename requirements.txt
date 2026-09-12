@@ -1,1 +1,5 @@
-alpaca-trade-api
+# Pinned for reproducible CI runs.
+#
+# alpaca-py is the actively maintained SDK. It replaced alpaca-trade-api,
+# which was deprecated and forced a pandas<3 pin.
+alpaca-py>=0.42,<1.0

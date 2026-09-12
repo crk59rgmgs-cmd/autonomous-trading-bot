@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Secrets - never commit credentials
+.env
+*.pem
+
+# Transient state
+logs/*.tmp
+logs/state.json.tmp
+
+# NOTE: logs/ itself is intentionally NOT ignored. The workflow commits
+# trade/equity history and state.json so they survive ephemeral runners.
