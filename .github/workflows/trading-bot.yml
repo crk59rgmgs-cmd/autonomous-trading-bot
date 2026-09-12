@@ -1,13 +1,35 @@
 name: Autonomous Trading Bot
 
 on:
+  # Runs hourly. The strategy operates on 4-hour bars, so a faster cadence
+  # adds no signal -- and GitHub silently drops high-frequency schedules
+  # under load. :30 avoids the top-of-hour congestion peak.
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "30 * * * *"
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Simulate orders without sending them"
+        type: boolean
+        default: false
+      symbols:
+        description: "Comma-separated symbols"
+        default: "BTC/USD,ETH/USD"
+
+# Never let two runs trade simultaneously: overlapping runs could
+# double-submit orders. Queued runs wait rather than cancel, so a run in the
+# middle of placing an order is never killed.
+concurrency:
+  group: trading-bot
+  cancel-in-progress: false
+
+permissions:
+  contents: write
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repo
@@ -17,21 +39,55 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Verify the bot is importable
+        run: python -c "import bot.run_once_and_exit; print('import OK')"
 
       - name: Run trading bot
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
-        run: |
-          python bot/run_once_and_exit.py > trading-bot-log.txt 2>&1
+          ALPACA_PAPER: "true"
+          SYMBOLS: ${{ github.event.inputs.symbols || 'BTC/USD,ETH/USD' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          TIMEFRAME: "4Hour"
+        # NOTE: stdout is deliberately NOT redirected to the log file. The bot
+        # writes logs/trading-bot-log.txt itself; redirecting here would mean
+        # two writers, one of them truncating, and lost error messages.
+        run: python -m bot.run_once_and_exit
 
-      - name: Upload log artifact
+      - name: Upload logs
+        # Always upload, especially on failure -- that is when logs matter.
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: trading-bot-log
-          path: trading-bot-log.txt
+          name: trading-bot-logs-${{ github.run_number }}
+          path: logs/
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Persist logs and state to the repo
+        # Equity/trade history and the drawdown peak must survive the
+        # ephemeral runner, so they are committed back to main.
+        if: always()
+        run: |
+          git config user.name "trading-bot[bot]"
+          git config user.email "trading-bot@users.noreply.github.com"
+          git add -f logs/ || true
+          if git diff --staged --quiet; then
+            echo "No log changes to commit."
+          else
+            git commit -m "chore(logs): run ${{ github.run_number }} [skip ci]"
+            # Rebase in case another run committed while we were trading.
+            for i in 1 2 3; do
+              git pull --rebase --autostash origin main && git push origin HEAD:main && break
+              echo "Push attempt $i failed; retrying..."
+              sleep 5
+            done
+          fi

@@ -1,0 +1,3 @@
+Placeholder so the logs directory exists on a fresh checkout.
+The bot writes trade_log.csv, equity_log.csv, signal_log.csv,
+trading-bot-log.txt and state.json here.
