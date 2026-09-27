@@ -1,0 +1,42 @@
+{
+  "mode": "PAPER_ONLY",
+  "version": "0.1",
+  "spy": {
+    "name": "SPY Range Sweep",
+    "timeframes": {
+      "structure": "15m",
+      "setup": "5m",
+      "entry": "1m"
+    },
+    "max_trades_per_session": 3,
+    "session_stop_r": -2.0,
+    "tp1_r": 1.0,
+    "require_regime_classification": true,
+    "allow_stop_widening": false,
+    "allow_averaging_down": false,
+    "valid_regimes": ["RANGE", "BULL_TREND", "BEAR_TREND", "CHAOS"],
+    "no_trade_regime": "CHAOS"
+  },
+  "crypto": {
+    "name": "Crypto Momentum",
+    "scanner_windows": ["1h", "4h", "24h"],
+    "max_attempts_same_symbol": 2,
+    "session_stop_r": -2.0,
+    "tp1_r": 1.0,
+    "tp2_r_default": 2.0,
+    "allow_stop_widening": false,
+    "allow_averaging_down": false,
+    "prefer_retest_entry": true
+  },
+  "learning": {
+    "auto_modify_rules": false,
+    "workflow": [
+      "collect_paper_trades",
+      "analyze",
+      "propose_change",
+      "backtest_or_paper_test",
+      "human_review",
+      "version_bump"
+    ]
+  }
+}
