@@ -1,0 +1,1 @@
+timestamp_utc,market,symbol,strategy_version,setup,regime,direction,entry,invalidation,tp1,tp2,risk_r,result_r,status,timeframe_structure,timeframe_setup,timeframe_entry,one_hour_return,four_hour_return,twenty_four_hour_return,btc_regime,confirmations,catalyst,notes
